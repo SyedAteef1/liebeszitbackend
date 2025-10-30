@@ -148,8 +148,8 @@ def github_callback():
         logger.info(f"Username: {username}")
         logger.info(f"Saved to user: {user_id}")
         
-        # Redirect back to test page with success message
-        return redirect(f"{Config.FRONTEND_URL}/test?github_connected=true")
+        # Redirect back to demodash page with success message
+        return redirect(f"{Config.FRONTEND_URL}/demodash?github_connected=true")
         
     except Exception as e:
         logger.error(f"Exception during token exchange: {str(e)}")

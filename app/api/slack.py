@@ -180,8 +180,8 @@ def slack_oauth_redirect():
         logger.info(f"🏢 Team ID: {team_id}")
         logger.info("="*60)
         
-        # Redirect back to test page with success message
-        return redirect(f"{Config.FRONTEND_URL}/test?slack_connected=true")
+        # Redirect back to demodash page with success message
+        return redirect(f"{Config.FRONTEND_URL}/demodash?slack_connected=true")
         
     except Exception as e:
         logger.error(f"❌ Exception during token exchange: {str(e)}")

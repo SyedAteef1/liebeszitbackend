@@ -8,7 +8,8 @@ import jwt
 import os
 from app.database.mongodb import (
     create_project, get_user_projects, update_project, delete_project,
-    save_message, get_project_messages, get_database_stats
+    save_message, get_project_messages, get_database_stats,
+    create_tasks, get_project_tasks, update_task, delete_task
 )
 
 logger = logging.getLogger(__name__)
@@ -236,6 +237,146 @@ def database_stats():
         })
     except Exception as e:
         logger.error(f"❌ Error getting database stats: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ============== TASK OPERATIONS ==============
+
+@project_bp.route("/projects/<project_id>/tasks", methods=["GET"])
+def get_tasks(project_id):
+    """Get all tasks for a project"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return jsonify({"error": "No authorization provided"}), 401
+    
+    try:
+        # Verify JWT token
+        token = auth_header.replace('Bearer ', '')
+        jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        
+        status_filter = request.args.get('status')  # Optional status filter
+        
+        logger.info(f"📋 Fetching tasks for project {project_id}")
+        
+        tasks = get_project_tasks(project_id, status_filter)
+        
+        return jsonify({
+            "ok": True,
+            "tasks": tasks
+        })
+        
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token expired"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Invalid token"}), 401
+    except Exception as e:
+        logger.error(f"❌ Error fetching tasks: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@project_bp.route("/projects/<project_id>/tasks", methods=["POST"])
+def create_project_tasks(project_id):
+    """Create tasks for a project from AI-generated subtasks"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return jsonify({"error": "No authorization provided"}), 401
+    
+    try:
+        # Verify JWT token
+        token = auth_header.replace('Bearer ', '')
+        jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        
+        data = request.get_json()
+        subtasks = data.get('subtasks', [])
+        session_id = data.get('session_id')
+        
+        if not subtasks:
+            return jsonify({"error": "subtasks required"}), 400
+        
+        logger.info(f"✅ Creating {len(subtasks)} tasks for project {project_id}")
+        
+        task_ids = create_tasks(project_id, subtasks, session_id)
+        
+        if task_ids:
+            return jsonify({
+                "ok": True,
+                "task_ids": task_ids,
+                "count": len(task_ids)
+            })
+        else:
+            return jsonify({"error": "Failed to create tasks"}), 500
+            
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token expired"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Invalid token"}), 401
+    except Exception as e:
+        logger.error(f"❌ Error creating tasks: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@project_bp.route("/tasks/<task_id>", methods=["PUT"])
+def update_task_route(task_id):
+    """Update a task (e.g., status, assignee, etc.)"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return jsonify({"error": "No authorization provided"}), 401
+    
+    try:
+        # Verify JWT token
+        token = auth_header.replace('Bearer ', '')
+        jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        
+        data = request.get_json()
+        
+        # Remove fields that shouldn't be updated directly
+        updates = {k: v for k, v in data.items() if k not in ['_id', 'id', 'project_id', 'created_at', 'created_from']}
+        
+        logger.info(f"✏️ Updating task {task_id}")
+        
+        success = update_task(task_id, updates)
+        
+        if success:
+            return jsonify({"ok": True})
+        else:
+            return jsonify({"error": "Failed to update task"}), 500
+            
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token expired"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Invalid token"}), 401
+    except Exception as e:
+        logger.error(f"❌ Error updating task: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@project_bp.route("/tasks/<task_id>", methods=["DELETE"])
+def delete_task_route(task_id):
+    """Delete a task"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return jsonify({"error": "No authorization provided"}), 401
+    
+    try:
+        # Verify JWT token
+        token = auth_header.replace('Bearer ', '')
+        jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        
+        logger.info(f"🗑️ Deleting task {task_id}")
+        
+        success = delete_task(task_id)
+        
+        if success:
+            return jsonify({"ok": True})
+        else:
+            return jsonify({"error": "Failed to delete task"}), 404
+            
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token expired"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Invalid token"}), 401
+    except Exception as e:
+        logger.error(f"❌ Error deleting task: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 

@@ -22,12 +22,13 @@ projects_collection = None
 messages_collection = None
 repo_context_collection = None
 conversation_history_collection = None
+tasks_collection = None
 
 
 def init_db():
     """Initialize MongoDB connection and create indexes"""
     global client, db, users_collection, projects_collection, messages_collection
-    global repo_context_collection, conversation_history_collection
+    global repo_context_collection, conversation_history_collection, tasks_collection
     
     try:
         logger.info("🔌 Connecting to MongoDB...")
@@ -53,6 +54,7 @@ def init_db():
         messages_collection = db['messages']
         repo_context_collection = db['repo_contexts']
         conversation_history_collection = db['conversation_history']
+        tasks_collection = db['tasks']
         
         # Create indexes for performance
         users_collection.create_index([("email", ASCENDING)], unique=True)
@@ -60,6 +62,8 @@ def init_db():
         messages_collection.create_index([("project_id", ASCENDING), ("created_at", ASCENDING)])
         repo_context_collection.create_index([("repo_full_name", ASCENDING)], unique=True)
         conversation_history_collection.create_index([("session_id", ASCENDING)], unique=True)
+        tasks_collection.create_index([("project_id", ASCENDING), ("created_at", DESCENDING)])
+        tasks_collection.create_index([("status", ASCENDING)])
         
         logger.info("✅ MongoDB collections initialized with indexes")
         return True
@@ -177,10 +181,13 @@ def update_project(project_id, updates):
 
 
 def delete_project(project_id):
-    """Delete a project and its messages"""
+    """Delete a project and its messages and tasks"""
     try:
         # Delete all messages for this project
         messages_collection.delete_many({"project_id": project_id})
+        
+        # Delete all tasks for this project
+        tasks_collection.delete_many({"project_id": project_id})
         
         # Delete the project
         result = projects_collection.delete_one({"_id": ObjectId(project_id)})
@@ -363,6 +370,89 @@ def get_conversation_history(session_id):
         return {"conversations": []}
 
 
+# ============== TASK OPERATIONS ==============
+
+def create_tasks(project_id, subtasks, session_id=None):
+    """Create multiple tasks from AI-generated subtasks"""
+    try:
+        task_ids = []
+        
+        for subtask in subtasks:
+            task = {
+                "project_id": project_id,
+                "title": subtask.get("task", ""),
+                "description": subtask.get("description", ""),
+                "priority": subtask.get("priority", "medium"),
+                "status": "pending",
+                "session_id": session_id,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow()
+            }
+            
+            result = tasks_collection.insert_one(task)
+            task_ids.append(str(result.inserted_id))
+        
+        logger.info(f"✅ Created {len(task_ids)} tasks for project {project_id}")
+        return task_ids
+    except Exception as e:
+        logger.error(f"❌ Error creating tasks: {str(e)}")
+        return []
+
+
+def get_project_tasks(project_id, status_filter=None):
+    """Get all tasks for a project"""
+    try:
+        query = {"project_id": project_id}
+        
+        if status_filter:
+            query["status"] = status_filter
+        
+        tasks = list(tasks_collection.find(query).sort("created_at", DESCENDING))
+        
+        for task in tasks:
+            task['_id'] = str(task['_id'])
+            task['id'] = str(task['_id'])
+        
+        logger.info(f"✅ Found {len(tasks)} tasks for project {project_id}")
+        return tasks
+    except Exception as e:
+        logger.error(f"❌ Error getting tasks: {str(e)}")
+        return []
+
+
+def update_task(task_id, updates):
+    """Update a task"""
+    try:
+        updates['updated_at'] = datetime.utcnow()
+        
+        result = tasks_collection.update_one(
+            {"_id": ObjectId(task_id)},
+            {"$set": updates}
+        )
+        
+        if result.modified_count > 0:
+            logger.info(f"✅ Task {task_id} updated")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"❌ Error updating task: {str(e)}")
+        return False
+
+
+def delete_task(task_id):
+    """Delete a task"""
+    try:
+        result = tasks_collection.delete_one({"_id": ObjectId(task_id)})
+        
+        if result.deleted_count > 0:
+            logger.info(f"✅ Task {task_id} deleted")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"❌ Error deleting task: {str(e)}")
+        return False
+
+
 # ============== UTILITY FUNCTIONS ==============
 
 def get_database_stats():
@@ -372,6 +462,7 @@ def get_database_stats():
             "users": users_collection.count_documents({}),
             "projects": projects_collection.count_documents({}),
             "messages": messages_collection.count_documents({}),
+            "tasks": tasks_collection.count_documents({}),
             "repo_contexts": repo_context_collection.count_documents({}),
             "conversations": conversation_history_collection.count_documents({})
         }
